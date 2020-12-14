@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Web3 from 'web3';
 import Compile from '../contract/compile';
 import './styles.css';
-import { updateExpression } from '@babel/types';
+import api from '../services/api';
 
 // Página de controle dos dados pessoais
 function Owner() {
@@ -20,28 +20,40 @@ function Owner() {
     });
 
     useEffect(() => {
-        let web3 = undefined;
+        async function start() {
+            let web3 = undefined;
 
-        // Realizar conexão com a blockchain
-        if (typeof web3 !== 'undefined') {
-            // Usar provedor MetaMask
-            web3 = new Web3(web3.currentProvider);
-        }
-        else {
-            // Usar provedor localhost
-            web3 = new Web3(new Web3.providers.HttpProvider("http://localhost:8545"));
-        }
+            // Realizar conexão com a blockchain
+            if (typeof web3 !== 'undefined') {
+                // Usar provedor MetaMask
+                web3 = new Web3(web3.currentProvider);
+            }
+            else {
+                // Usar provedor localhost
+                web3 = new Web3(new Web3.providers.HttpProvider("http://localhost:8545"));
+            }
 
-        // Salvar endereço da conta
-        let walletAddr = '';
-        web3.eth.getCoinbase().then(function(coinbase) {
-            walletAddr = coinbase;
-            
-            // Acesso ao DB
-            
-            
-            setState({...state, web3: web3, walletAddr: walletAddr});
-        });
+            // Salvar endereço da conta
+            let walletAddr = '';
+            web3.eth.getCoinbase().then(async function(coinbase) {
+                walletAddr = coinbase;
+                
+                // Acesso ao DB
+                await api.get(`/wallet/getWallet?walletAddr=${walletAddr}`)
+                    .then(res => {
+                        if (res.data === "") {
+                            setState({...state, web3: web3, walletAddr: walletAddr});
+                        }
+                        else {
+                            const data = res.data.wallet;
+                            const contract = new web3.eth.Contract(data.abi, data.contractAddr);
+                            setState({...state, web3: web3, walletAddr: walletAddr, age: data.age, height: data.height, name: data.name, weight: data.weight, contractAddr: data.contractAddr, contract: contract, loaded: true});
+                        }
+                    })
+                    .catch(error => console.log(error));
+            });
+        }
+        start();
     }, []);
 
     // Função para realizar deploy do contrato e cadastrar dados no DB
@@ -64,12 +76,24 @@ function Owner() {
             const contract = new state.web3.eth.Contract(abi, contractAddr);
 
             // Definir dono pelo método defineOwner
-            contract.methods.defineOwner().send({from: state.walletAddr}).then(() => {
+            contract.methods.defineOwner().send({from: state.walletAddr}).then(async () => {
                 setState({...state, contractAddr: contractAddr, contract: contract, loaded: true});
 
                 alert("Foi realizado deploy do contrato no endereço " + contractAddr.toString());
 
                 // Chamada para cadastrar dados no db
+                const data = {
+                    walletAddr: state.walletAddr,
+                    contractAddr: contractAddr,
+                    name: state.name,
+                    age: state.age,
+                    weight: state.weight,
+                    height: state.height,
+                    abi: abi
+                };
+
+                await api.post('/wallet/createWallet',
+                    JSON.stringify(data), { headers: {'Content-Type': 'application/json'} });
             })
         }).catch((err) => {
             alert(err);
@@ -77,8 +101,20 @@ function Owner() {
     }
 
     // Função para atualizar dados no DB
-    function update() {
-        // Chamar rota
+    async function update() {
+        // Chamar rota para atualização no DB
+        console.log(state);
+        const data = {
+            myWalletAddr: state.walletAddr,
+            walletAddr: state.walletAddr,
+            name: state.name,
+            age: state.age,
+            weight: state.weight,
+            height: state.height
+        };
+
+        await api.put('/wallet/updateWallet',
+            JSON.stringify(data), { headers: {'Content-Type': 'application/json'} });
     }
 
     // Função para autorizar acesso aos dados

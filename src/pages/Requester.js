@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Web3 from 'web3';
+import api from '../services/api';
 import './styles.css';
 
 // Página de requisição de acesso e visualização aos dados
@@ -9,15 +11,58 @@ function Requester() {
         weight: '',
         height: '',
         requestedAddr: '',
+        web3: '',
+        walletAddr: '',
         // auth = 0 -> Nenhuma requisição feita
         // auth = 1 -> Acesso permitido
         // auth = 2 -> Acesso negado
         auth: 0
     })
 
+    useEffect(() => {
+        let web3 = undefined;
+
+        // Realizar conexão com a blockchain
+        if (typeof web3 !== 'undefined') {
+            // Usar provedor MetaMask
+            web3 = new Web3(web3.currentProvider);
+        }
+        else {
+            // Usar provedor localhost
+            web3 = new Web3(new Web3.providers.HttpProvider("http://localhost:8545"));
+        }
+
+        // Salvar endereço da conta
+        let walletAddr = '';
+        web3.eth.getCoinbase().then(async function(coinbase) {
+            walletAddr = coinbase;
+
+            setState({...state, web3: web3, walletAddr: walletAddr});
+        });
+    }, []);
+
     // Função para solicitar acesso aos dados e carregá-los
-    function display() {
-        setState({...state, auth: 2});
+    async function display() {
+        await api.get(`/wallet/getWallet?walletAddr=${state.requestedAddr}`)
+            .then(res => {
+                if (res.data !== "") {
+                    const data = res.data.wallet;
+                    const contract = new state.web3.eth.Contract(data.abi, data.contractAddr);
+
+                    // Checar acesso no método checkAccess
+                    contract.methods.checkAccess(state.walletAddr).call({from: state.walletAddr}).then(access => {
+                        console.log(state.walletAddr);
+
+                        if (access) {
+                            setState({...state, name: data.name, age: data.age, weight: data.weight, height: data.height, auth: 1});
+                        }
+                        else {
+                            setState({...state, auth: 2});
+                        }
+                    })
+                }
+            })
+            .catch(error => console.log(error));
     }
 
     return (
